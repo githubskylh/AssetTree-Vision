@@ -1,0 +1,150 @@
+import React, { memo } from 'react';
+import { Handle, Position, NodeProps } from '@xyflow/react';
+import { Globe, Server, FileCode, Shield, Layers, ArrowUpRight, Cpu } from 'lucide-react';
+import { CustomNodeData } from '../types';
+
+export const CustomCardNode = memo(({ data, selected }: NodeProps<any>) => {
+  const nodeData = data as CustomNodeData;
+
+  const isApex = nodeData.nodeType === 'apex_domain';
+  const isSub = nodeData.nodeType === 'subdomain';
+  const isEndpoint = nodeData.nodeType === 'endpoint';
+
+  // Determine status color
+  const getStatusColor = (code?: number) => {
+    if (!code || code === 200) return 'bg-emerald-500 text-emerald-100 border-emerald-400/30';
+    if (code >= 300 && code < 400) return 'bg-amber-500 text-amber-100 border-amber-400/30';
+    if (code >= 400 && code < 500) return 'bg-orange-500 text-orange-100 border-orange-400/30';
+    return 'bg-rose-500 text-rose-100 border-rose-400/30';
+  };
+
+  return (
+    <div
+      className={`min-w-[240px] max-w-[340px] rounded-xl transition-all duration-300 select-none ${
+        selected ? 'ring-2 ring-blue-400 shadow-xl shadow-blue-500/20 scale-[1.02]' : ''
+      } ${
+        isApex
+          ? 'bg-gradient-to-b from-[#1E293B] to-[#0F172A] border-2 border-blue-500/60 shadow-lg shadow-blue-900/30'
+          : isSub
+          ? 'bg-[#131B2E]/90 border border-cyan-500/40 shadow-md shadow-cyan-950/20'
+          : 'bg-[#182235]/85 border border-slate-700/60'
+      }`}
+    >
+      {/* Target Handle (Left) */}
+      {!isApex && (
+        <Handle
+          type="target"
+          position={Position.Left}
+          className="!w-2.5 !h-2.5 !bg-blue-400 !border-2 !border-slate-900"
+        />
+      )}
+
+      {/* Card Header */}
+      <div className="p-3.5 border-b border-white/5 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div
+            className={`p-1.5 rounded-lg shrink-0 ${
+              isApex
+                ? 'bg-blue-500/20 text-blue-400'
+                : isSub
+                ? 'bg-cyan-500/20 text-cyan-400'
+                : 'bg-emerald-500/20 text-emerald-400'
+            }`}
+          >
+            {isApex && <Globe className="w-4 h-4" />}
+            {isSub && <Server className="w-4 h-4" />}
+            {isEndpoint && <FileCode className="w-4 h-4" />}
+          </div>
+          <span className="font-mono text-xs font-semibold text-slate-200 truncate">
+            {nodeData.label}
+          </span>
+        </div>
+
+        {/* Status code badge */}
+        {nodeData.statusCode && (
+          <span
+            className={`text-[10px] font-mono px-2 py-0.5 rounded-full border shrink-0 ${getStatusColor(
+              nodeData.statusCode
+            )}`}
+          >
+            {nodeData.statusCode}
+          </span>
+        )}
+      </div>
+
+      {/* Card Body */}
+      <div className="p-3 space-y-2 text-xs">
+        {/* Apex details */}
+        {isApex && (
+          <div className="flex items-center justify-between text-slate-400">
+            <span className="flex items-center gap-1">
+              <Layers className="w-3.5 h-3.5 text-blue-400" />
+              根域母体 (Root Apex)
+            </span>
+            <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono text-[11px]">
+              {nodeData.subdomainCount || 0} 个子域名
+            </span>
+          </div>
+        )}
+
+        {/* Subdomain details */}
+        {isSub && (
+          <div className="space-y-1.5 text-slate-300">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-slate-400">DNS 解析 IP</span>
+              <span className="font-mono text-[11px] text-cyan-300">
+                {nodeData.ip || 'Resolved'}
+              </span>
+            </div>
+            {nodeData.cname && (
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-slate-400">CNAME 别名</span>
+                <span className="font-mono text-[10px] text-slate-400 truncate max-w-[140px]">
+                  {nodeData.cname}
+                </span>
+              </div>
+            )}
+            <div className="flex items-center justify-between pt-1 border-t border-white/5">
+              <span className="text-[11px] text-slate-400">已穿透子页面</span>
+              <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                {nodeData.pagesCount || 0} 条路由
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Endpoint details */}
+        {isEndpoint && (
+          <div className="space-y-1">
+            {nodeData.title && (
+              <p className="text-slate-300 truncate text-[11px]" title={nodeData.title}>
+                {nodeData.title}
+              </p>
+            )}
+            <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1">
+              {nodeData.responseTime !== undefined ? (
+                <span>⏱️ {nodeData.responseTime}ms</span>
+              ) : (
+                <span>-</span>
+              )}
+              {nodeData.isJsExtracted && (
+                <span className="flex items-center gap-0.5 bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded">
+                  <Cpu className="w-2.5 h-2.5" /> JS 路由
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Source Handle (Right) */}
+      {!isEndpoint && (
+        <Handle
+          type="source"
+          position={Position.Right}
+          className="!w-2.5 !h-2.5 !bg-blue-400 !border-2 !border-slate-900"
+        />
+      )}
+    </div>
+  );
+});

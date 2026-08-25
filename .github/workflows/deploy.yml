@@ -1,0 +1,77 @@
+name: AssetTree-Vision CI/CD & Deploy
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  test-and-build:
+    name: 🧪 Quality Audit & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: 📦 Install Backend Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: 🧪 Verify Backend Architecture Integrity
+        run: |
+          python -c "import sys; sys.path.insert(0, 'backend'); from app.core.normalizer import normalize_target_url; from app.security.ssrf_filter import is_safe_target_host; print('Backend modules verified successfully!')"
+
+      - name: ⚡ Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: frontend/package.json
+
+      - name: 📦 Install Frontend Dependencies & Build
+        run: |
+          cd frontend
+          npm install
+          npm run build
+
+  deploy-to-cloud:
+    name: 🚀 Deploy to Cloud Fleet (OCI / AWS)
+    needs: test-and-build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ☁️ Remote Deploy via SSH (Optional trigger if secrets configured)
+        uses: appleboy/ssh-action@v1.0.3
+        if: env.DEPLOY_HOST != ''
+        env:
+          DEPLOY_HOST: ${{ secrets.SERVER_HOST }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER || 'ubuntu' }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            echo "🚀 Starting automated deployment for AssetTree-Vision..."
+            if [ ! -d "/opt/AssetTree-Vision" ]; then
+              sudo git clone https://github.com/${{ github.repository }}.git /opt/AssetTree-Vision
+            fi
+            cd /opt/AssetTree-Vision
+            sudo git fetch --all
+            sudo git reset --hard origin/main
+            sudo docker compose down || true
+            sudo docker compose up -d --build
+            echo "✅ Deployment completed successfully!"
