@@ -12,7 +12,6 @@ from app.engine.sitemap_sniffer import sniff_robots_and_sitemap
 
 logger = logging.getLogger(__name__)
 
-# Regex for extracting hidden endpoints from JavaScript bundles
 JS_ENDPOINT_REGEX = re.compile(
     r"""(?:"|')((?:/[a-zA-Z0-9_\-\.~]+)+(?:\?[a-zA-Z0-9_\-.~=&]*)?)(?:"|')""",
     re.VERBOSE
@@ -47,30 +46,28 @@ async def crawl_single_host(
     fqdn: str,
     root_domain: str,
     initial_path: str = "/",
-    max_pages: int = 35,
-    timeout_seconds: float = 6.0
+    max_pages: int = 15,
+    timeout_seconds: float = 4.0
 ) -> CrawlResult:
     """
-    Crawls a single host for pages, robots.txt, sitemaps, and JS bundle endpoints.
+    Crawls a single host efficiently for pages, robots, and JS bundle routes.
     """
     result = CrawlResult(fqdn=fqdn)
     visited_urls: Set[str] = set()
     queue: List[str] = [urljoin(base_url, initial_path)]
 
-    # 1. Proactive robots & sitemap sniffing
-    sitemap_paths = await sniff_robots_and_sitemap(base_url, fqdn)
-    for sm_p in list(sitemap_paths)[:15]:
+    # Sniff robots
+    sitemap_paths = await sniff_robots_and_sitemap(base_url, fqdn, timeout=3.0)
+    for sm_p in list(sitemap_paths)[:8]:
         full_u = urljoin(base_url, sm_p)
         if sm_p not in result.pages:
             result.pages[sm_p] = PageNodeInfo(
                 url=full_u,
                 path=sm_p,
                 status_code=200,
-                title="Sitemap Discovered",
+                title="Robots Discovered",
                 is_sitemap_discovered=True
             )
-        if full_u not in queue and len(queue) < 15:
-            queue.append(full_u)
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -104,25 +101,22 @@ async def crawl_single_host(
 
                 title = None
                 if "text/html" in content_type:
-                    soup = BeautifulSoup(resp.text[:100000], "html.parser")
+                    soup = BeautifulSoup(resp.text[:80000], "html.parser")
                     if soup.title and soup.title.string:
                         title = soup.title.string.strip()[:60]
 
-                    # Discover HTML links
-                    for a_tag in soup.find_all("a", href=True):
+                    for a_tag in soup.find_all("a", href=True)[:30]:
                         href = a_tag["href"].strip()
                         if href.startswith("javascript:") or href.startswith("mailto:") or href.startswith("#"):
                             continue
                         abs_link = urljoin(current_url, href)
                         link_parsed = urlparse(abs_link)
-                        # Ensure same host
                         if link_parsed.netloc.lower() == fqdn.lower():
                             if not any(link_parsed.path.lower().endswith(ext) for ext in STATIC_EXTENSIONS_TO_SKIP):
-                                if abs_link not in visited_urls and abs_link not in queue:
+                                if abs_link not in visited_urls and abs_link not in queue and len(queue) < 15:
                                     queue.append(abs_link)
 
-                    # Discover JS scripts for endpoint extraction
-                    for script in soup.find_all("script", src=True):
+                    for script in soup.find_all("script", src=True)[:5]:
                         src = script["src"].strip()
                         abs_script = urljoin(current_url, src)
                         result.scripts.add(abs_script)
@@ -146,20 +140,20 @@ async def crawl_single_host(
                     response_time_ms=int((time.perf_counter() - start_t) * 1000)
                 )
 
-        # Process found JavaScript files for hidden endpoints
-        js_scripts_to_scan = list(result.scripts)[:10]
+        # JS AST / Regex extraction
+        js_scripts_to_scan = list(result.scripts)[:3]
         for js_url in js_scripts_to_scan:
             try:
                 js_resp = await client.get(js_url)
                 if js_resp.status_code == 200:
-                    matches = JS_ENDPOINT_REGEX.findall(js_resp.text[:500000])
-                    for raw_path in matches:
+                    matches = JS_ENDPOINT_REGEX.findall(js_resp.text[:300000])
+                    for raw_path in matches[:20]:
                         clean_path = raw_path.strip()
                         if any(clean_path.endswith(ext) for ext in STATIC_EXTENSIONS_TO_SKIP):
                             continue
-                        if clean_path.startswith("//") or len(clean_path) < 2 or len(clean_path) > 80:
+                        if clean_path.startswith("//") or len(clean_path) < 2 or len(clean_path) > 60:
                             continue
-                        if clean_path not in result.pages and len(result.pages) < max_pages + 25:
+                        if clean_path not in result.pages and len(result.pages) < max_pages + 15:
                             result.pages[clean_path] = PageNodeInfo(
                                 url=urljoin(base_url, clean_path),
                                 path=clean_path,
