@@ -1,0 +1,30 @@
+# Node.js / Next.js
+node_modules/
+.next/
+out/
+build/
+dist/
+.env
+.env.local
+.env.*.local
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+dist/
+*.egg-info/
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
