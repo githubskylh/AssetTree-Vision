@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from pydantic import BaseModel
 
 from app.engine.sitemap_sniffer import sniff_robots_and_sitemap
+from app.engine.tech_detector import detect_technologies
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +35,14 @@ class PageNodeInfo(BaseModel):
     is_sitemap_discovered: bool = False
     parent_path: Optional[str] = None
     content_type: Optional[str] = None
+    technologies: List[str] = []
 
 class CrawlResult:
     def __init__(self, fqdn: str):
         self.fqdn = fqdn
         self.pages: Dict[str, PageNodeInfo] = {}
         self.scripts: Set[str] = set()
+        self.technologies: Set[str] = set()
 
 async def crawl_single_host(
     base_url: str,
@@ -50,13 +53,12 @@ async def crawl_single_host(
     timeout_seconds: float = 3.0
 ) -> CrawlResult:
     """
-    Crawls a single host efficiently with strict Root Domain Boundary Jail and wildcard filtering.
+    Crawls a single host efficiently with strict Root Domain Boundary Jail and Web Tech Fingerprinting.
     """
     result = CrawlResult(fqdn=fqdn)
     visited_urls: Set[str] = set()
     queue: List[str] = [urljoin(base_url, initial_path)]
 
-    # Sniff robots if within domain
     if fqdn.endswith(root_domain):
         sitemap_paths = await sniff_robots_and_sitemap(base_url, fqdn, timeout=2.0)
         for sm_p in list(sitemap_paths)[:5]:
@@ -88,10 +90,8 @@ async def crawl_single_host(
             visited_urls.add(current_url)
 
             parsed = urlparse(current_url)
-            # Domain Boundary Check: Stay strictly on same root domain
             if not parsed.netloc.lower().endswith(root_domain):
                 continue
-            # Wildcard / Bogus path check
             if any(ch in parsed.path for ch in ["*", "\\", " ", "<", ">", "$"]):
                 continue
 
@@ -102,7 +102,6 @@ async def crawl_single_host(
                 resp = await client.get(current_url)
                 duration_ms = int((time.perf_counter() - start_t) * 1000)
 
-                # If redirected to external domain, record and skip further deep extraction
                 final_host = urlparse(str(resp.url)).netloc.lower()
                 if not final_host.endswith(root_domain):
                     result.pages[path] = PageNodeInfo(
@@ -117,6 +116,11 @@ async def crawl_single_host(
                 content_type = resp.headers.get("content-type", "")
                 server = resp.headers.get("server", "")
 
+                # Detect Technologies
+                page_techs = detect_technologies(dict(resp.headers), resp.text if "text/html" in content_type else "")
+                for t in page_techs:
+                    result.technologies.add(t)
+
                 title = None
                 if "text/html" in content_type:
                     soup = BeautifulSoup(resp.text[:50000], "html.parser")
@@ -129,13 +133,11 @@ async def crawl_single_host(
                             continue
                         abs_link = urljoin(current_url, href)
                         link_parsed = urlparse(abs_link)
-                        # Same host only & no wildcards
                         if link_parsed.netloc.lower() == fqdn.lower() and not any(ch in link_parsed.path for ch in ["*", "\\", " "]):
                             if not any(link_parsed.path.lower().endswith(ext) for ext in STATIC_EXTENSIONS_TO_SKIP):
                                 if abs_link not in visited_urls and abs_link not in queue and len(queue) < 8:
                                     queue.append(abs_link)
 
-                    # Only scan internal JS scripts
                     for script in soup.find_all("script", src=True)[:2]:
                         src = script["src"].strip()
                         abs_script = urljoin(current_url, src)
@@ -150,7 +152,8 @@ async def crawl_single_host(
                     title=title,
                     server=server,
                     response_time_ms=duration_ms,
-                    content_type=content_type
+                    content_type=content_type,
+                    technologies=page_techs
                 )
 
             except Exception:

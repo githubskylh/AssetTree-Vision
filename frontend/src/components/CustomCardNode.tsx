@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Handle, Position, NodeProps } from '@xyflow/react';
-import { Globe, Server, FileCode, Shield, Layers, ArrowUpRight, Cpu, Share2, Map, ChevronDown, ChevronRight } from 'lucide-react';
+import { Globe, Server, FileCode, Layers, Cpu, Share2, Map, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 import { CustomNodeData } from '../types';
 
 export const CustomCardNode = memo(({ id, data, selected }: NodeProps<any>) => {
@@ -10,6 +10,10 @@ export const CustomCardNode = memo(({ id, data, selected }: NodeProps<any>) => {
   const isHorizontal = nodeData.nodeType === 'horizontal_domain';
   const isSub = nodeData.nodeType === 'subdomain';
   const isEndpoint = nodeData.nodeType === 'endpoint';
+  const isTB = nodeData.layoutDirection === 'TB';
+
+  const targetPosition = isTB ? Position.Top : Position.Left;
+  const sourcePosition = isTB ? Position.Bottom : Position.Right;
 
   // Determine status color
   const getStatusColor = (code?: number) => {
@@ -33,15 +37,15 @@ export const CustomCardNode = memo(({ id, data, selected }: NodeProps<any>) => {
           : isHorizontal
           ? 'bg-gradient-to-b from-[#16273b] to-[#0d1e2f] border-2 border-cyan-500/60 shadow-lg shadow-cyan-950/40'
           : isSub
-          ? 'bg-[#131B2E]/90 border border-cyan-500/40 shadow-md shadow-cyan-950/20'
+          ? 'bg-[#131B2E]/95 border border-cyan-500/40 shadow-md shadow-cyan-950/20'
           : 'bg-[#182235]/85 border border-slate-700/60'
       }`}
     >
-      {/* Target Handle (Left) */}
+      {/* Target Handle */}
       {!isHorizontal && (
         <Handle
           type="target"
-          position={Position.Left}
+          position={targetPosition}
           className="!w-2.5 !h-2.5 !bg-blue-400 !border-2 !border-slate-900"
         />
       )}
@@ -90,7 +94,7 @@ export const CustomCardNode = memo(({ id, data, selected }: NodeProps<any>) => {
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1 text-slate-300">
                 <Layers className="w-3.5 h-3.5 text-blue-400" />
-                根域母体 (Root Apex)
+                根域母体 (Apex)
               </span>
               <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono text-[11px]">
                 {nodeData.subdomainCount || 0} 子域
@@ -140,10 +144,31 @@ export const CustomCardNode = memo(({ id, data, selected }: NodeProps<any>) => {
               </div>
             )}
             <div className="flex items-center justify-between pt-1 border-t border-white/5">
-              <span className="text-[11px] text-slate-400">已穿透子页面</span>
-              <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                {nodeData.pagesCount || 0} 条路由
-              </span>
+              <span className="text-[11px] text-slate-400">已穿透路由</span>
+              {nodeData.pagesCount !== undefined && nodeData.pagesCount > 0 ? (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    nodeData.onToggleCollapse?.(id);
+                  }}
+                  className="flex items-center gap-1 text-[10px] font-mono text-emerald-300 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 px-2 py-0.5 rounded transition-all"
+                  title="点击折叠/展开该子域下的子页面"
+                >
+                  {nodeData.isCollapsed ? (
+                    <>
+                      <ChevronRight className="w-3 h-3 text-emerald-400" />
+                      <span>展开 {nodeData.pagesCount} 条</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="w-3 h-3 text-emerald-400" />
+                      <span>折叠 {nodeData.pagesCount} 条</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <span className="text-[11px] font-mono text-slate-500">0 条</span>
+              )}
             </div>
           </div>
         )}
@@ -177,13 +202,27 @@ export const CustomCardNode = memo(({ id, data, selected }: NodeProps<any>) => {
             </div>
           </div>
         )}
+
+        {/* Tech Badges */}
+        {nodeData.technologies && nodeData.technologies.length > 0 && (
+          <div className="flex flex-wrap gap-1 pt-1.5 border-t border-white/5">
+            {nodeData.technologies.map((t) => (
+              <span
+                key={t}
+                className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-800/90 text-cyan-300 border border-slate-700/60"
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Source Handle (Right) */}
+      {/* Source Handle */}
       {!isEndpoint && (
         <Handle
           type="source"
-          position={Position.Right}
+          position={sourcePosition}
           className="!w-2.5 !h-2.5 !bg-blue-400 !border-2 !border-slate-900"
         />
       )}

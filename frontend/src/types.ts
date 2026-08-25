@@ -1,4 +1,5 @@
 export type NodeTypeEnum = 'apex_domain' | 'subdomain' | 'endpoint' | 'horizontal_domain';
+export type LayoutDirectionEnum = 'LR' | 'TB';
 
 export interface CustomNodeData {
   label: string;
@@ -18,9 +19,11 @@ export interface CustomNodeData {
   server?: string;
   isRoot?: boolean;
   fqdn?: string;
+  technologies?: string[];
   isCollapsed?: boolean;
   isHighlighted?: boolean;
   onToggleCollapse?: (nodeId: string) => void;
+  layoutDirection?: LayoutDirectionEnum;
 }
 
 export interface ScanStageEvent {
@@ -41,4 +44,12 @@ export interface StatsSummary {
   totalEndpoints: number;
   nodesCount: number;
   edgesCount: number;
+  technologies?: string[];
+  statusDistribution?: {
+    "2xx": number;
+    "3xx": number;
+    "4xx": number;
+    "5xx": number;
+    "other": number;
+  };
 }

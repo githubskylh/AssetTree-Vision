@@ -27,14 +27,11 @@ def build_react_flow_graph(
     horizontal_domains: Optional[Set[str]] = None
 ) -> TopologyGraph:
     """
-    Builds a multi-dimensional React Flow graph:
-    - Horizontal pivot domains (Left column / Siblings)
-    - Apex Root domain (Center)
-    - Subdomains (Right column)
-    - Endpoints / Child pages (Far right column)
+    Builds a multi-dimensional React Flow graph with tech stacks and hierarchical connections.
     """
     nodes: List[FlowNode] = []
     edges: List[FlowEdge] = []
+    all_technologies: Set[str] = set()
 
     # 1. Horizontal Pivot Domains (Left Column)
     h_domains = sorted(list(horizontal_domains or set()))
@@ -55,17 +52,24 @@ def build_react_flow_graph(
 
     # 2. Apex Domain Node (Center Anchor)
     apex_id = f"domain:{root_domain}"
+    
+    # Collect technologies across all crawled hosts
+    for c_data in crawled_hosts.values():
+        if hasattr(c_data, 'technologies'):
+            all_technologies.update(c_data.technologies)
+
     nodes.append(
         FlowNode(
             id=apex_id,
-            position={"x": 50.0, "y": 250.0},
+            position={"x": 60.0, "y": 250.0},
             data={
                 "label": root_domain,
                 "nodeType": "apex_domain",
                 "subdomainCount": len(active_subdomains),
                 "horizontalCount": len(h_domains),
                 "isRoot": True,
-                "status": 200
+                "status": 200,
+                "technologies": sorted(list(all_technologies))[:4]
             }
         )
     )
@@ -86,7 +90,10 @@ def build_react_flow_graph(
     # 3. Subdomain Nodes (Right Column)
     subdomain_list = sorted(list(active_subdomains.keys()))
     y_offset = 50.0
-    y_gap = 180.0
+    y_gap = 190.0
+
+    # Count status code distribution
+    status_distribution = {"2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0, "other": 0}
 
     for idx, fqdn in enumerate(subdomain_list):
         sub_id = f"sub:{fqdn}"
@@ -96,12 +103,13 @@ def build_react_flow_graph(
 
         crawl_data = crawled_hosts.get(fqdn)
         pages_count = len(crawl_data.pages) if crawl_data else 0
+        host_techs = list(crawl_data.technologies) if crawl_data and hasattr(crawl_data, 'technologies') else []
 
         pos_y = y_offset + (idx * y_gap)
         nodes.append(
             FlowNode(
                 id=sub_id,
-                position={"x": 450.0, "y": pos_y},
+                position={"x": 460.0, "y": pos_y},
                 data={
                     "label": fqdn,
                     "nodeType": "subdomain",
@@ -109,7 +117,8 @@ def build_react_flow_graph(
                     "cname": cname,
                     "pagesCount": pages_count,
                     "status": 200 if getattr(sub_info, "is_alive", True) else 0,
-                    "fqdn": fqdn
+                    "fqdn": fqdn,
+                    "technologies": host_techs[:3]
                 }
             )
         )
@@ -127,15 +136,28 @@ def build_react_flow_graph(
 
         # 4. Deep Page Nodes (Far Right Column)
         if crawl_data and crawl_data.pages:
-            page_items = list(crawl_data.pages.items())[:15]
+            page_items = list(crawl_data.pages.items())[:12]
             for p_idx, (path, page_info) in enumerate(page_items):
                 page_id = f"page:{fqdn}:{path}"
                 page_y = pos_y - 60.0 + (p_idx * 75.0)
 
+                # Track status code
+                s_code = page_info.status_code or 0
+                if 200 <= s_code < 300:
+                    status_distribution["2xx"] += 1
+                elif 300 <= s_code < 400:
+                    status_distribution["3xx"] += 1
+                elif 400 <= s_code < 500:
+                    status_distribution["4xx"] += 1
+                elif s_code >= 500:
+                    status_distribution["5xx"] += 1
+                else:
+                    status_distribution["other"] += 1
+
                 nodes.append(
                     FlowNode(
                         id=page_id,
-                        position={"x": 880.0, "y": page_y},
+                        position={"x": 900.0, "y": page_y},
                         data={
                             "label": path,
                             "nodeType": "endpoint",
@@ -146,7 +168,8 @@ def build_react_flow_graph(
                             "responseTime": page_info.response_time_ms,
                             "isJsExtracted": page_info.is_js_extracted,
                             "isSitemapDiscovered": getattr(page_info, "is_sitemap_discovered", False),
-                            "server": page_info.server
+                            "server": page_info.server,
+                            "technologies": getattr(page_info, "technologies", [])[:2]
                         }
                     )
                 )
@@ -176,6 +199,8 @@ def build_react_flow_graph(
             "totalSubdomains": len(active_subdomains),
             "totalEndpoints": total_pages,
             "nodesCount": len(nodes),
-            "edgesCount": len(edges)
+            "edgesCount": len(edges),
+            "technologies": sorted(list(all_technologies)),
+            "statusDistribution": status_distribution
         }
     )
