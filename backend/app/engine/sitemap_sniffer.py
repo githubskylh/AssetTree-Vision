@@ -6,9 +6,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-async def sniff_robots_and_sitemap(base_url: str, fqdn: str, timeout: float = 3.0) -> Set[str]:
+async def sniff_robots_and_sitemap(base_url: str, fqdn: str, timeout: float = 2.5) -> Set[str]:
     """
-    Fast and light sniff for /robots.txt and direct sitemap URLs.
+    Fast sniff for /robots.txt and literal sitemap URLs, ignoring wildcard regex patterns.
     """
     discovered_paths: Set[str] = set()
 
@@ -21,15 +21,16 @@ async def sniff_robots_and_sitemap(base_url: str, fqdn: str, timeout: float = 3.
             robots_url = urljoin(base_url, "/robots.txt")
             r_rob = await client.get(robots_url)
             if r_rob.status_code == 200:
-                for line in r_rob.text.splitlines()[:50]:
+                for line in r_rob.text.splitlines()[:40]:
                     clean_line = line.strip()
                     if clean_line.lower().startswith(("disallow:", "allow:")):
                         parts = clean_line.split(":", 1)
                         if len(parts) > 1:
                             path = parts[1].strip()
-                            if path and not path.startswith("*") and len(path) > 1 and len(path) < 60:
+                            # STRICT FILTER: Discard wildcard regex like /*/*/forks or query patterns
+                            if path and not any(ch in path for ch in ["*", "?", "$", "\\", " "]) and len(path) > 1 and len(path) < 40:
                                 discovered_paths.add(path)
-                                if len(discovered_paths) >= 8:
+                                if len(discovered_paths) >= 6:
                                     break
         except Exception:
             pass
