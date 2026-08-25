@@ -7,21 +7,28 @@ export interface CustomNodeData {
   ip?: string;
   cname?: string;
   subdomainCount?: number;
+  horizontalCount?: number;
   pagesCount?: number;
   url?: string;
   statusCode?: number;
   title?: string;
   responseTime?: number;
   isJsExtracted?: boolean;
+  isSitemapDiscovered?: boolean;
   server?: string;
   isRoot?: boolean;
   fqdn?: string;
+  isCollapsed?: boolean;
+  isHighlighted?: boolean;
+  onToggleCollapse?: (nodeId: string) => void;
 }
 
 export interface ScanStageEvent {
-  stage: 'idle' | 'normalizing' | 'passive_ct' | 'passive_ct_done' | 'dns_probing' | 'dns_done' | 'deep_crawling' | 'graph_ready' | 'complete' | 'error';
+  stage: 'idle' | 'normalizing' | 'horizontal_san' | 'horizontal_done' | 'passive_ct' | 'passive_ct_done' | 'dns_probing' | 'dns_done' | 'deep_crawling' | 'graph_ready' | 'complete' | 'error';
   message: string;
   count?: number;
+  horizontalCount?: number;
+  domains?: string[];
   activeHosts?: string[];
   pagesCount?: number;
   host?: string;
@@ -29,6 +36,7 @@ export interface ScanStageEvent {
 
 export interface StatsSummary {
   rootDomain: string;
+  totalHorizontal: number;
   totalSubdomains: number;
   totalEndpoints: number;
   nodesCount: number;

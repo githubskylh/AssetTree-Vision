@@ -1,18 +1,24 @@
 import React, { useState } from 'react';
-import { Search, Sparkles, Download, RefreshCw, Network, ShieldCheck } from 'lucide-react';
+import { Search, Sparkles, Download, RefreshCw, Network, FileSpreadsheet, LayoutGrid, Filter } from 'lucide-react';
 
 interface NavbarProps {
   onStartScan: (url: string, depth: number) => void;
   isScanning: boolean;
   onExportJson: () => void;
+  onExportCsv: () => void;
   onReset: () => void;
+  searchFilter: string;
+  onSearchFilterChange: (val: string) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   onStartScan,
   isScanning,
   onExportJson,
-  onReset
+  onExportCsv,
+  onReset,
+  searchFilter,
+  onSearchFilterChange
 }) => {
   const [inputUrl, setInputUrl] = useState('https://github.com');
   const [depth, setDepth] = useState(2);
@@ -39,10 +45,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               AssetTree-Vision
             </h1>
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              v1.0
+              v1.2 Pro
             </span>
           </div>
-          <p className="text-[11px] text-slate-400">URL 全维度资产穿透与树状拓扑图</p>
+          <p className="text-[11px] text-slate-400">全维度横向纵向资产穿透与树状拓扑图</p>
         </div>
       </div>
 
@@ -56,7 +62,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             type="text"
             value={inputUrl}
             onChange={(e) => setInputUrl(e.target.value)}
-            placeholder="输入任意目标 URL 或域名 (如 https://example.com 或 api.sub.domain.com)"
+            placeholder="输入目标 URL (如 https://example.com 或 api.sub.domain.com)"
             disabled={isScanning}
             className="w-full pl-10 pr-4 py-2 bg-slate-900/80 border border-slate-700/80 rounded-xl text-xs font-mono text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all shadow-inner"
           />
@@ -72,7 +78,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="bg-transparent text-cyan-400 font-mono font-semibold focus:outline-none cursor-pointer"
           >
             <option value={1} className="bg-slate-900">1 级 (主干)</option>
-            <option value={2} className="bg-slate-900">2 级 (推荐)</option>
+            <option value={2} className="bg-slate-900">2 级 (标准)</option>
             <option value={3} className="bg-slate-900">3 级 (深度)</option>
           </select>
         </div>
@@ -101,16 +107,38 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
       </form>
 
-      {/* Right: Actions */}
+      {/* Right: Instant Search Filter & Export Actions */}
       <div className="flex items-center gap-2">
+        {/* Instant Canvas Search */}
+        <div className="relative">
+          <Filter className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+          <input
+            type="text"
+            value={searchFilter}
+            onChange={(e) => onSearchFilterChange(e.target.value)}
+            placeholder="画布高亮过滤 (如 api, 200)..."
+            className="pl-8 pr-3 py-1.5 bg-slate-900/60 border border-slate-700/60 rounded-lg text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 w-44 transition-all"
+          />
+        </div>
+
+        <button
+          onClick={onExportCsv}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-300 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 transition-colors"
+          title="导出 CSV 资产清单"
+        >
+          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+          <span>CSV</span>
+        </button>
+
         <button
           onClick={onExportJson}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-300 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 transition-colors"
           title="导出当前拓扑图 JSON"
         >
-          <Download className="w-3.5 h-3.5 text-slate-400" />
-          <span>导出 JSON</span>
+          <Download className="w-3.5 h-3.5 text-blue-400" />
+          <span>JSON</span>
         </button>
+
         <button
           onClick={onReset}
           className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition-colors"

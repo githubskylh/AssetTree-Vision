@@ -1,4 +1,4 @@
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Set
 from pydantic import BaseModel
 
 class FlowNode(BaseModel):
@@ -23,16 +23,37 @@ class TopologyGraph(BaseModel):
 def build_react_flow_graph(
     root_domain: str,
     active_subdomains: Dict[str, Any],
-    crawled_hosts: Dict[str, Any]
+    crawled_hosts: Dict[str, Any],
+    horizontal_domains: Optional[Set[str]] = None
 ) -> TopologyGraph:
     """
-    Builds a hierarchical React Flow graph with card nodes and animated edges.
-    Arranged in a left-to-right (LR) / top-to-bottom (TB) layout.
+    Builds a multi-dimensional React Flow graph:
+    - Horizontal pivot domains (Left column / Siblings)
+    - Apex Root domain (Center)
+    - Subdomains (Right column)
+    - Endpoints / Child pages (Far right column)
     """
     nodes: List[FlowNode] = []
     edges: List[FlowEdge] = []
 
-    # 1. Root Domain Node (Apex Domain)
+    # 1. Horizontal Pivot Domains (Left Column)
+    h_domains = sorted(list(horizontal_domains or set()))
+    for h_idx, h_dom in enumerate(h_domains[:5]):
+        h_id = f"horizontal:{h_dom}"
+        nodes.append(
+            FlowNode(
+                id=h_id,
+                position={"x": -320.0, "y": 150.0 + (h_idx * 160.0)},
+                data={
+                    "label": h_dom,
+                    "nodeType": "horizontal_domain",
+                    "status": 200,
+                    "isRoot": False
+                }
+            )
+        )
+
+    # 2. Apex Domain Node (Center Anchor)
     apex_id = f"domain:{root_domain}"
     nodes.append(
         FlowNode(
@@ -42,13 +63,27 @@ def build_react_flow_graph(
                 "label": root_domain,
                 "nodeType": "apex_domain",
                 "subdomainCount": len(active_subdomains),
+                "horizontalCount": len(h_domains),
                 "isRoot": True,
                 "status": 200
             }
         )
     )
 
-    # 2. Subdomain Nodes (Vertical Column)
+    # Connect Horizontal domains to Apex Root
+    for h_dom in h_domains[:5]:
+        h_id = f"horizontal:{h_dom}"
+        edges.append(
+            FlowEdge(
+                id=f"edge:{h_id}->{apex_id}",
+                source=h_id,
+                target=apex_id,
+                animated=True,
+                style={"stroke": "#06B6D4", "strokeWidth": 2, "strokeDasharray": "5,5"}
+            )
+        )
+
+    # 3. Subdomain Nodes (Right Column)
     subdomain_list = sorted(list(active_subdomains.keys()))
     y_offset = 50.0
     y_gap = 180.0
@@ -56,7 +91,7 @@ def build_react_flow_graph(
     for idx, fqdn in enumerate(subdomain_list):
         sub_id = f"sub:{fqdn}"
         sub_info = active_subdomains[fqdn]
-        ip_addr = getattr(sub_info, "ip", None) or "DNS Resolved"
+        ip_addr = getattr(sub_info, "ip", None) or "Resolved"
         cname = getattr(sub_info, "cname", None)
 
         crawl_data = crawled_hosts.get(fqdn)
@@ -66,14 +101,15 @@ def build_react_flow_graph(
         nodes.append(
             FlowNode(
                 id=sub_id,
-                position={"x": 420.0, "y": pos_y},
+                position={"x": 450.0, "y": pos_y},
                 data={
                     "label": fqdn,
                     "nodeType": "subdomain",
                     "ip": ip_addr,
                     "cname": cname,
                     "pagesCount": pages_count,
-                    "status": 200 if getattr(sub_info, "is_alive", True) else 0
+                    "status": 200 if getattr(sub_info, "is_alive", True) else 0,
+                    "fqdn": fqdn
                 }
             )
         )
@@ -89,9 +125,9 @@ def build_react_flow_graph(
             )
         )
 
-        # 3. Deep Page Nodes (Third Column)
+        # 4. Deep Page Nodes (Far Right Column)
         if crawl_data and crawl_data.pages:
-            page_items = list(crawl_data.pages.items())[:12] # show up to 12 top pages per host in main graph
+            page_items = list(crawl_data.pages.items())[:15]
             for p_idx, (path, page_info) in enumerate(page_items):
                 page_id = f"page:{fqdn}:{path}"
                 page_y = pos_y - 60.0 + (p_idx * 75.0)
@@ -99,7 +135,7 @@ def build_react_flow_graph(
                 nodes.append(
                     FlowNode(
                         id=page_id,
-                        position={"x": 820.0, "y": page_y},
+                        position={"x": 880.0, "y": page_y},
                         data={
                             "label": path,
                             "nodeType": "endpoint",
@@ -109,6 +145,7 @@ def build_react_flow_graph(
                             "title": page_info.title,
                             "responseTime": page_info.response_time_ms,
                             "isJsExtracted": page_info.is_js_extracted,
+                            "isSitemapDiscovered": getattr(page_info, "is_sitemap_discovered", False),
                             "server": page_info.server
                         }
                     )
@@ -135,6 +172,7 @@ def build_react_flow_graph(
         edges=edges,
         stats={
             "rootDomain": root_domain,
+            "totalHorizontal": len(h_domains),
             "totalSubdomains": len(active_subdomains),
             "totalEndpoints": total_pages,
             "nodesCount": len(nodes),

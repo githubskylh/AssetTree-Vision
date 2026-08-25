@@ -6,8 +6,6 @@ import {
   Background,
   useNodesState,
   useEdgesState,
-  addEdge,
-  Connection,
   Edge,
   Node,
   BackgroundVariant
@@ -26,16 +24,27 @@ const nodeTypes = {
   customCard: CustomCardNode,
 };
 
-// Initial Demo Graph
+// Enhanced Initial Demo Graph with Horizontal & Sitemap nodes
 const initialNodes: Node[] = [
+  {
+    id: 'horizontal:githubstatus.com',
+    type: 'customCard',
+    position: { x: -280, y: 220 },
+    data: {
+      label: 'githubstatus.com',
+      nodeType: 'horizontal_domain',
+      status: 200
+    }
+  },
   {
     id: 'domain:github.com',
     type: 'customCard',
-    position: { x: 50, y: 220 },
+    position: { x: 80, y: 220 },
     data: {
       label: 'github.com',
       nodeType: 'apex_domain',
       subdomainCount: 4,
+      horizontalCount: 1,
       isRoot: true,
       status: 200
     }
@@ -43,7 +52,7 @@ const initialNodes: Node[] = [
   {
     id: 'sub:api.github.com',
     type: 'customCard',
-    position: { x: 420, y: 80 },
+    position: { x: 460, y: 80 },
     data: {
       label: 'api.github.com',
       nodeType: 'subdomain',
@@ -55,7 +64,7 @@ const initialNodes: Node[] = [
   {
     id: 'sub:docs.github.com',
     type: 'customCard',
-    position: { x: 420, y: 320 },
+    position: { x: 460, y: 320 },
     data: {
       label: 'docs.github.com',
       nodeType: 'subdomain',
@@ -67,7 +76,7 @@ const initialNodes: Node[] = [
   {
     id: 'page:api.github.com:/users',
     type: 'customCard',
-    position: { x: 820, y: 40 },
+    position: { x: 880, y: 40 },
     data: {
       label: '/users',
       nodeType: 'endpoint',
@@ -81,7 +90,7 @@ const initialNodes: Node[] = [
   {
     id: 'page:api.github.com:/repos',
     type: 'customCard',
-    position: { x: 820, y: 130 },
+    position: { x: 880, y: 130 },
     data: {
       label: '/repos',
       nodeType: 'endpoint',
@@ -95,20 +104,21 @@ const initialNodes: Node[] = [
   {
     id: 'page:docs.github.com:/rest',
     type: 'customCard',
-    position: { x: 820, y: 300 },
+    position: { x: 880, y: 300 },
     data: {
       label: '/rest',
       nodeType: 'endpoint',
       url: 'https://docs.github.com/rest',
       statusCode: 200,
       responseTime: 52,
-      isJsExtracted: false,
+      isSitemapDiscovered: true,
       title: 'REST API Documentation - GitHub Docs'
     }
   }
 ];
 
 const initialEdges: Edge[] = [
+  { id: 'e-h1', source: 'horizontal:githubstatus.com', target: 'domain:github.com', animated: true, style: { stroke: '#06B6D4', strokeWidth: 2, strokeDasharray: '5,5' } },
   { id: 'e1-2', source: 'domain:github.com', target: 'sub:api.github.com', animated: true, style: { stroke: '#3B82F6', strokeWidth: 2 } },
   { id: 'e1-3', source: 'domain:github.com', target: 'sub:docs.github.com', animated: true, style: { stroke: '#3B82F6', strokeWidth: 2 } },
   { id: 'e2-4', source: 'sub:api.github.com', target: 'page:api.github.com:/users', style: { stroke: '#10B981', strokeWidth: 1.5 } },
@@ -125,14 +135,17 @@ export default function App() {
   const [selectedNodeData, setSelectedNodeData] = useState<CustomNodeData | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
+  const [searchFilter, setSearchFilter] = useState('');
 
   const statsSummary: StatsSummary = useMemo(() => {
     const rootNode = nodes.find(n => (n.data as any)?.nodeType === 'apex_domain');
+    const horizontals = nodes.filter(n => (n.data as any)?.nodeType === 'horizontal_domain');
     const subdomains = nodes.filter(n => (n.data as any)?.nodeType === 'subdomain');
     const endpoints = nodes.filter(n => (n.data as any)?.nodeType === 'endpoint');
 
     return {
       rootDomain: (rootNode?.data as any)?.label || 'github.com',
+      totalHorizontal: horizontals.length,
       totalSubdomains: subdomains.length,
       totalEndpoints: endpoints.length,
       nodesCount: nodes.length,
@@ -140,17 +153,41 @@ export default function App() {
     };
   }, [nodes, edges]);
 
-  // Filtered nodes
+  // Filtered & Highlighted nodes
   const displayNodes = useMemo(() => {
-    if (activeFilter === 'all') return nodes;
-    if (activeFilter === 'subdomains') {
-      return nodes.filter(n => (n.data as any)?.nodeType === 'apex_domain' || (n.data as any)?.nodeType === 'subdomain');
+    let filtered = nodes;
+    if (activeFilter === 'horizontal') {
+      filtered = nodes.filter(n => (n.data as any)?.nodeType === 'horizontal_domain' || (n.data as any)?.nodeType === 'apex_domain');
+    } else if (activeFilter === 'subdomains') {
+      filtered = nodes.filter(n => (n.data as any)?.nodeType === 'apex_domain' || (n.data as any)?.nodeType === 'subdomain');
+    } else if (activeFilter === 'endpoints') {
+      filtered = nodes.filter(n => (n.data as any)?.nodeType === 'endpoint' || (n.data as any)?.nodeType === 'subdomain');
     }
-    if (activeFilter === 'endpoints') {
-      return nodes.filter(n => (n.data as any)?.nodeType === 'endpoint' || (n.data as any)?.nodeType === 'subdomain');
+
+    if (!searchFilter.trim()) {
+      return filtered.map(n => ({
+        ...n,
+        data: { ...(n.data as any), isHighlighted: false }
+      }));
     }
-    return nodes;
-  }, [nodes, activeFilter]);
+
+    const query = searchFilter.toLowerCase().trim();
+    return filtered.map(n => {
+      const d = n.data as any;
+      const labelMatch = (d.label || '').toLowerCase().includes(query);
+      const titleMatch = (d.title || '').toLowerCase().includes(query);
+      const statusMatch = String(d.statusCode || d.status || '').includes(query);
+      const isMatch = labelMatch || titleMatch || statusMatch;
+
+      return {
+        ...n,
+        data: {
+          ...d,
+          isHighlighted: isMatch
+        }
+      };
+    });
+  }, [nodes, activeFilter, searchFilter]);
 
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     setSelectedNodeData(node.data as unknown as CustomNodeData);
@@ -159,7 +196,7 @@ export default function App() {
 
   const handleStartScan = useCallback((url: string, depth: number) => {
     setIsScanning(true);
-    setCurrentStage({ stage: 'normalizing', message: `正在启动三维穿透引擎：${url}` });
+    setCurrentStage({ stage: 'normalizing', message: `正在启动全维度穿透引擎：${url}` });
     setNodes([]);
     setEdges([]);
 
@@ -174,7 +211,7 @@ export default function App() {
       const data = JSON.parse(e.data);
       setCurrentStage({
         stage: 'deep_crawling',
-        message: `已完成子域 [${data.host}] 深度穿透，提取 ${data.pagesCount} 条路由`
+        message: `已完成子域 [${data.host}] 深度穿透，挖掘 ${data.pagesCount} 条路由`
       });
     });
 
@@ -188,15 +225,15 @@ export default function App() {
       setIsScanning(false);
       eventSource.close();
       confetti({
-        particleCount: 80,
-        spread: 70,
+        particleCount: 100,
+        spread: 80,
         origin: { y: 0.6 }
       });
     });
 
     eventSource.onerror = (err) => {
       console.error('SSE Error:', err);
-      setCurrentStage({ stage: 'error', message: '探测任务完成或连接结束' });
+      setCurrentStage({ stage: 'error', message: '探测任务完成或连接已关闭' });
       setIsScanning(false);
       eventSource.close();
     };
@@ -212,20 +249,52 @@ export default function App() {
     downloadAnchor.remove();
   }, [nodes, edges, statsSummary]);
 
+  const handleExportCsv = useCallback(() => {
+    const headers = ["ID", "Node Type", "Label", "Status Code", "Full URL", "IP Address", "Response Time (ms)", "Server", "Title", "JS Route", "Sitemap"];
+    const rows = nodes.map(n => {
+      const d = n.data as any;
+      return [
+        `"${n.id}"`,
+        `"${d.nodeType || ''}"`,
+        `"${d.label || ''}"`,
+        `"${d.statusCode || d.status || ''}"`,
+        `"${d.url || ''}"`,
+        `"${d.ip || ''}"`,
+        `"${d.responseTime ?? ''}"`,
+        `"${d.server || ''}"`,
+        `"${(d.title || '').replace(/"/g, '""')}"`,
+        `"${d.isJsExtracted ? 'Yes' : 'No'}"`,
+        `"${d.isSitemapDiscovered ? 'Yes' : 'No'}"`
+      ].join(",");
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers.join(","), ...rows].join("\n");
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", encodeURI(csvContent));
+    downloadAnchor.setAttribute("download", `AssetTree_Assets_${statsSummary.rootDomain}_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  }, [nodes, statsSummary]);
+
   const handleReset = useCallback(() => {
     setNodes(initialNodes);
     setEdges(initialEdges);
     setCurrentStage(null);
+    setSearchFilter('');
   }, [setNodes, setEdges]);
 
   return (
-    <div className="w-screen h-screen flex flex-col bg-[#0B0F19] text-slate-100 overflow-hidden">
+    <div className="w-screen h-screen flex flex-col bg-[#0B0F19] text-slate-100 overflow-hidden font-sans">
       {/* Top Navbar */}
       <Navbar
         onStartScan={handleStartScan}
         isScanning={isScanning}
         onExportJson={handleExportJson}
+        onExportCsv={handleExportCsv}
         onReset={handleReset}
+        searchFilter={searchFilter}
+        onSearchFilterChange={setSearchFilter}
       />
 
       {/* Main Workspace */}
@@ -250,13 +319,13 @@ export default function App() {
             attributionPosition="bottom-right"
             className="bg-[#0B0F19]"
           >
-            <Background color="#1E293B" gap={20} size={1} variant={BackgroundVariant.Dots} />
+            <Background color="#1E293B" gap={24} size={1.2} variant={BackgroundVariant.Dots} />
             <Controls className="!bg-[#131B2E] !border-slate-800" />
             <MiniMap
               nodeStrokeColor="#3B82F6"
               nodeColor="#1E293B"
-              maskColor="rgba(11, 15, 25, 0.7)"
-              className="!bg-[#131B2E]/90 !border-slate-800 !rounded-xl"
+              maskColor="rgba(11, 15, 25, 0.75)"
+              className="!bg-[#131B2E]/90 !border-slate-800 !rounded-xl shadow-2xl"
             />
           </ReactFlow>
 

@@ -1,12 +1,13 @@
 import React, { memo } from 'react';
 import { Handle, Position, NodeProps } from '@xyflow/react';
-import { Globe, Server, FileCode, Shield, Layers, ArrowUpRight, Cpu } from 'lucide-react';
+import { Globe, Server, FileCode, Shield, Layers, ArrowUpRight, Cpu, Share2, Map, ChevronDown, ChevronRight } from 'lucide-react';
 import { CustomNodeData } from '../types';
 
-export const CustomCardNode = memo(({ data, selected }: NodeProps<any>) => {
+export const CustomCardNode = memo(({ id, data, selected }: NodeProps<any>) => {
   const nodeData = data as CustomNodeData;
 
   const isApex = nodeData.nodeType === 'apex_domain';
+  const isHorizontal = nodeData.nodeType === 'horizontal_domain';
   const isSub = nodeData.nodeType === 'subdomain';
   const isEndpoint = nodeData.nodeType === 'endpoint';
 
@@ -21,17 +22,23 @@ export const CustomCardNode = memo(({ data, selected }: NodeProps<any>) => {
   return (
     <div
       className={`min-w-[240px] max-w-[340px] rounded-xl transition-all duration-300 select-none ${
-        selected ? 'ring-2 ring-blue-400 shadow-xl shadow-blue-500/20 scale-[1.02]' : ''
+        nodeData.isHighlighted
+          ? 'ring-4 ring-cyan-400 shadow-2xl shadow-cyan-500/50 scale-105 animate-pulse'
+          : selected
+          ? 'ring-2 ring-blue-400 shadow-xl shadow-blue-500/20 scale-[1.02]'
+          : ''
       } ${
         isApex
-          ? 'bg-gradient-to-b from-[#1E293B] to-[#0F172A] border-2 border-blue-500/60 shadow-lg shadow-blue-900/30'
+          ? 'bg-gradient-to-b from-[#1E293B] to-[#0F172A] border-2 border-blue-500/70 shadow-lg shadow-blue-900/40'
+          : isHorizontal
+          ? 'bg-gradient-to-b from-[#16273b] to-[#0d1e2f] border-2 border-cyan-500/60 shadow-lg shadow-cyan-950/40'
           : isSub
           ? 'bg-[#131B2E]/90 border border-cyan-500/40 shadow-md shadow-cyan-950/20'
           : 'bg-[#182235]/85 border border-slate-700/60'
       }`}
     >
       {/* Target Handle (Left) */}
-      {!isApex && (
+      {!isHorizontal && (
         <Handle
           type="target"
           position={Position.Left}
@@ -46,12 +53,15 @@ export const CustomCardNode = memo(({ data, selected }: NodeProps<any>) => {
             className={`p-1.5 rounded-lg shrink-0 ${
               isApex
                 ? 'bg-blue-500/20 text-blue-400'
+                : isHorizontal
+                ? 'bg-cyan-500/20 text-cyan-300'
                 : isSub
                 ? 'bg-cyan-500/20 text-cyan-400'
                 : 'bg-emerald-500/20 text-emerald-400'
             }`}
           >
             {isApex && <Globe className="w-4 h-4" />}
+            {isHorizontal && <Share2 className="w-4 h-4" />}
             {isSub && <Server className="w-4 h-4" />}
             {isEndpoint && <FileCode className="w-4 h-4" />}
           </div>
@@ -76,14 +86,39 @@ export const CustomCardNode = memo(({ data, selected }: NodeProps<any>) => {
       <div className="p-3 space-y-2 text-xs">
         {/* Apex details */}
         {isApex && (
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="flex items-center gap-1">
-              <Layers className="w-3.5 h-3.5 text-blue-400" />
-              根域母体 (Root Apex)
-            </span>
-            <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono text-[11px]">
-              {nodeData.subdomainCount || 0} 个子域名
-            </span>
+          <div className="space-y-1.5 text-slate-400">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1 text-slate-300">
+                <Layers className="w-3.5 h-3.5 text-blue-400" />
+                根域母体 (Root Apex)
+              </span>
+              <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono text-[11px]">
+                {nodeData.subdomainCount || 0} 子域
+              </span>
+            </div>
+            {nodeData.horizontalCount !== undefined && nodeData.horizontalCount > 0 && (
+              <div className="flex items-center justify-between text-[11px] text-cyan-300 bg-cyan-950/30 px-2 py-1 rounded border border-cyan-800/40">
+                <span className="flex items-center gap-1">
+                  <Share2 className="w-3 h-3" />
+                  横向同根关联
+                </span>
+                <span className="font-mono font-bold">
+                  {nodeData.horizontalCount} 根域
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Horizontal domain details */}
+        {isHorizontal && (
+          <div className="space-y-1 text-cyan-200">
+            <div className="flex items-center justify-between text-[11px]">
+              <span>SSL 证书 SANs 同源</span>
+              <span className="bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded text-[10px]">
+                横向兄弟域
+              </span>
+            </div>
           </div>
         )}
 
@@ -127,11 +162,18 @@ export const CustomCardNode = memo(({ data, selected }: NodeProps<any>) => {
               ) : (
                 <span>-</span>
               )}
-              {nodeData.isJsExtracted && (
-                <span className="flex items-center gap-0.5 bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded">
-                  <Cpu className="w-2.5 h-2.5" /> JS 路由
-                </span>
-              )}
+              <div className="flex items-center gap-1">
+                {nodeData.isJsExtracted && (
+                  <span className="flex items-center gap-0.5 bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded">
+                    <Cpu className="w-2.5 h-2.5" /> JS
+                  </span>
+                )}
+                {nodeData.isSitemapDiscovered && (
+                  <span className="flex items-center gap-0.5 bg-blue-500/20 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded">
+                    <Map className="w-2.5 h-2.5" /> Sitemap
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         )}
