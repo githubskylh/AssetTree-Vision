@@ -46,28 +46,29 @@ async def crawl_single_host(
     fqdn: str,
     root_domain: str,
     initial_path: str = "/",
-    max_pages: int = 15,
-    timeout_seconds: float = 4.0
+    max_pages: int = 12,
+    timeout_seconds: float = 3.0
 ) -> CrawlResult:
     """
-    Crawls a single host efficiently for pages, robots, and JS bundle routes.
+    Crawls a single host efficiently with strict Root Domain Boundary Jail.
     """
     result = CrawlResult(fqdn=fqdn)
     visited_urls: Set[str] = set()
     queue: List[str] = [urljoin(base_url, initial_path)]
 
-    # Sniff robots
-    sitemap_paths = await sniff_robots_and_sitemap(base_url, fqdn, timeout=3.0)
-    for sm_p in list(sitemap_paths)[:8]:
-        full_u = urljoin(base_url, sm_p)
-        if sm_p not in result.pages:
-            result.pages[sm_p] = PageNodeInfo(
-                url=full_u,
-                path=sm_p,
-                status_code=200,
-                title="Robots Discovered",
-                is_sitemap_discovered=True
-            )
+    # Sniff robots if within domain
+    if fqdn.endswith(root_domain):
+        sitemap_paths = await sniff_robots_and_sitemap(base_url, fqdn, timeout=2.5)
+        for sm_p in list(sitemap_paths)[:6]:
+            full_u = urljoin(base_url, sm_p)
+            if sm_p not in result.pages:
+                result.pages[sm_p] = PageNodeInfo(
+                    url=full_u,
+                    path=sm_p,
+                    status_code=200,
+                    title="Robots Discovered",
+                    is_sitemap_discovered=True
+                )
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -87,6 +88,10 @@ async def crawl_single_host(
             visited_urls.add(current_url)
 
             parsed = urlparse(current_url)
+            # Domain Boundary Check: Stay strictly on same root domain
+            if not parsed.netloc.lower().endswith(root_domain):
+                continue
+
             path = parsed.path or "/"
             if parsed.query:
                 path = f"{path}?{parsed.query}"
@@ -96,30 +101,46 @@ async def crawl_single_host(
                 resp = await client.get(current_url)
                 duration_ms = int((time.perf_counter() - start_t) * 1000)
 
+                # If redirected to external domain, record and skip further deep extraction
+                final_host = urlparse(str(resp.url)).netloc.lower()
+                if not final_host.endswith(root_domain):
+                    result.pages[path] = PageNodeInfo(
+                        url=str(resp.url),
+                        path=path,
+                        status_code=resp.status_code,
+                        title=f"Redirects to {final_host}",
+                        response_time_ms=duration_ms
+                    )
+                    continue
+
                 content_type = resp.headers.get("content-type", "")
                 server = resp.headers.get("server", "")
 
                 title = None
                 if "text/html" in content_type:
-                    soup = BeautifulSoup(resp.text[:80000], "html.parser")
+                    soup = BeautifulSoup(resp.text[:60000], "html.parser")
                     if soup.title and soup.title.string:
                         title = soup.title.string.strip()[:60]
 
-                    for a_tag in soup.find_all("a", href=True)[:30]:
+                    for a_tag in soup.find_all("a", href=True)[:25]:
                         href = a_tag["href"].strip()
                         if href.startswith("javascript:") or href.startswith("mailto:") or href.startswith("#"):
                             continue
                         abs_link = urljoin(current_url, href)
                         link_parsed = urlparse(abs_link)
+                        # Same host only
                         if link_parsed.netloc.lower() == fqdn.lower():
                             if not any(link_parsed.path.lower().endswith(ext) for ext in STATIC_EXTENSIONS_TO_SKIP):
-                                if abs_link not in visited_urls and abs_link not in queue and len(queue) < 15:
+                                if abs_link not in visited_urls and abs_link not in queue and len(queue) < 10:
                                     queue.append(abs_link)
 
-                    for script in soup.find_all("script", src=True)[:5]:
+                    # Only scan JS scripts hosted on same root domain
+                    for script in soup.find_all("script", src=True)[:3]:
                         src = script["src"].strip()
                         abs_script = urljoin(current_url, src)
-                        result.scripts.add(abs_script)
+                        script_host = urlparse(abs_script).netloc.lower()
+                        if script_host.endswith(root_domain) or not script_host:
+                            result.scripts.add(abs_script)
 
                 result.pages[path] = PageNodeInfo(
                     url=current_url,
@@ -136,24 +157,24 @@ async def crawl_single_host(
                     url=current_url,
                     path=path,
                     status_code=0,
-                    title="Unreachable / Timeout",
+                    title="Timeout",
                     response_time_ms=int((time.perf_counter() - start_t) * 1000)
                 )
 
-        # JS AST / Regex extraction
-        js_scripts_to_scan = list(result.scripts)[:3]
+        # Scan internal JS files
+        js_scripts_to_scan = list(result.scripts)[:2]
         for js_url in js_scripts_to_scan:
             try:
                 js_resp = await client.get(js_url)
                 if js_resp.status_code == 200:
-                    matches = JS_ENDPOINT_REGEX.findall(js_resp.text[:300000])
-                    for raw_path in matches[:20]:
+                    matches = JS_ENDPOINT_REGEX.findall(js_resp.text[:200000])
+                    for raw_path in matches[:15]:
                         clean_path = raw_path.strip()
                         if any(clean_path.endswith(ext) for ext in STATIC_EXTENSIONS_TO_SKIP):
                             continue
-                        if clean_path.startswith("//") or len(clean_path) < 2 or len(clean_path) > 60:
+                        if clean_path.startswith("//") or len(clean_path) < 2 or len(clean_path) > 50:
                             continue
-                        if clean_path not in result.pages and len(result.pages) < max_pages + 15:
+                        if clean_path not in result.pages and len(result.pages) < max_pages + 10:
                             result.pages[clean_path] = PageNodeInfo(
                                 url=urljoin(base_url, clean_path),
                                 path=clean_path,
