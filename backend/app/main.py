@@ -21,7 +21,7 @@ logger = logging.getLogger("AssetTree-Vision")
 app = FastAPI(
     title="AssetTree-Vision API",
     description="URL Multi-Dimensional Asset Exploration & Tree Topology Engine",
-    version="1.1.0"
+    version="1.2.0"
 )
 
 # CORS configuration
@@ -39,7 +39,7 @@ class ProbeRequest(BaseModel):
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "online", "service": "AssetTree-Vision Core Engine", "version": "1.1.0"}
+    return {"status": "online", "service": "AssetTree-Vision Core Engine", "version": "1.2.0"}
 
 @app.post("/api/scan/probe")
 async def run_probe_once(req: ProbeRequest):
@@ -50,27 +50,33 @@ async def run_probe_once(req: ProbeRequest):
     if not is_safe_target_host(target.fqdn):
         raise HTTPException(status_code=400, detail="Target host is a private/internal IP (SSRF Blocked).")
 
-    # 1. Horizontal SANs discovery
-    horizontal_domains = await extract_horizontal_domains_from_ssl(target.fqdn, target.root_domain)
-
-    # 2. Passive CT lookup
-    ct_subdomains = await query_cert_transparency_subdomains(target.root_domain)
+    # 1. Concurrently run Horizontal SANs + CT lookup
+    san_task = extract_horizontal_domains_from_ssl(target.fqdn, target.root_domain)
+    ct_task = query_cert_transparency_subdomains(target.root_domain)
+    horizontal_domains, ct_subdomains = await asyncio.gather(san_task, ct_task)
     ct_subdomains.add(target.fqdn)
 
-    # 3. Active DNS resolution
+    # 2. Active DNS resolution
     active_subdomains = await probe_subdomains_concurrently(target.root_domain, ct_subdomains)
     if target.fqdn not in active_subdomains:
         active_subdomains[target.fqdn] = type("Sub", (), {"fqdn": target.fqdn, "ip": "Resolved", "is_alive": True})()
 
-    # 4. Deep Page Crawl on top hosts
+    # 3. Concurrent Deep Page Crawl on top hosts
     crawled_hosts = {}
-    top_hosts = list(active_subdomains.keys())[:8]
-    for host in top_hosts:
-        base_u = f"https://{host}"
-        crawl_res = await crawl_single_host(base_u, host, target.root_domain, initial_path=target.initial_path if host == target.fqdn else "/")
-        crawled_hosts[host] = crawl_res
+    top_hosts = list(active_subdomains.keys())[:6]
 
-    # 5. Build Flow Graph
+    async def _bound_crawl(h: str):
+        base_u = f"https://{h}"
+        res = await crawl_single_host(base_u, h, target.root_domain, initial_path=target.initial_path if h == target.fqdn else "/")
+        return h, res
+
+    crawl_tasks = [_bound_crawl(h) for h in top_hosts]
+    crawl_results = await asyncio.gather(*crawl_tasks, return_exceptions=True)
+    for item in crawl_results:
+        if isinstance(item, tuple):
+            crawled_hosts[item[0]] = item[1]
+
+    # 4. Build Flow Graph
     graph = build_react_flow_graph(target.root_domain, active_subdomains, crawled_hosts, horizontal_domains)
     return graph
 
@@ -86,44 +92,44 @@ async def run_probe_stream(url: str = Query(..., description="Target URL or doma
     async def event_generator() -> AsyncGenerator[str, None]:
         # Stage 1: Normalized
         yield f"event: stage\ndata: {json.dumps({'stage': 'normalizing', 'message': f'URL 智能归一化: {target.root_domain} (起始FQDN: {target.fqdn})', 'target': target.dict()})}\n\n"
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.1)
 
-        # Stage 2: Horizontal SANs Discovery
-        yield f"event: stage\ndata: {json.dumps({'stage': 'horizontal_san', 'message': f'正在嗅探 SSL 证书 SANs 备用名称中的横向同根域名...'})}\n\n"
-        horizontal_domains = await extract_horizontal_domains_from_ssl(target.fqdn, target.root_domain)
-        yield f"event: stage\ndata: {json.dumps({'stage': 'horizontal_done', 'message': f'已挖掘到 {len(horizontal_domains)} 个横向关联根域', 'horizontalCount': len(horizontal_domains), 'domains': list(horizontal_domains)})}\n\n"
-        await asyncio.sleep(0.2)
-
-        # Stage 3: Passive CT Logs
-        yield f"event: stage\ndata: {json.dumps({'stage': 'passive_ct', 'message': f'检索公开证书透明度日志 (CT Logs: *.{target.root_domain})...'})}\n\n"
-        ct_subdomains = await query_cert_transparency_subdomains(target.root_domain)
+        # Stage 2 & 3: Concurrent Horizontal SANs & CT Logs
+        yield f"event: stage\ndata: {json.dumps({'stage': 'horizontal_san', 'message': '并行嗅探 SSL 证书 SANs 关联根域与公开 CT Logs...'})}\n\n"
+        san_task = extract_horizontal_domains_from_ssl(target.fqdn, target.root_domain)
+        ct_task = query_cert_transparency_subdomains(target.root_domain)
+        horizontal_domains, ct_subdomains = await asyncio.gather(san_task, ct_task)
         ct_subdomains.add(target.fqdn)
-        yield f"event: stage\ndata: {json.dumps({'stage': 'passive_ct_done', 'message': f'从 CT Logs 中发现 {len(ct_subdomains)} 个候选子域', 'count': len(ct_subdomains)})}\n\n"
-        await asyncio.sleep(0.2)
+
+        yield f"event: stage\ndata: {json.dumps({'stage': 'horizontal_done', 'message': f'已发现 {len(horizontal_domains)} 个横向同根域与 {len(ct_subdomains)} 个候选子域', 'horizontalCount': len(horizontal_domains), 'domains': list(horizontal_domains)})}\n\n"
+        await asyncio.sleep(0.1)
 
         # Stage 4: Active Fast DNS Probing
-        yield f"event: stage\ndata: {json.dumps({'stage': 'dns_probing', 'message': '执行高并发非阻塞 DNS 字典与 A/CNAME 状态校验...'})}\n\n"
+        yield f"event: stage\ndata: {json.dumps({'stage': 'dns_probing', 'message': '正在执行毫秒级异步 DNS 状态解析与子域校验...'})}\n\n"
         active_subdomains = await probe_subdomains_concurrently(target.root_domain, ct_subdomains)
         if target.fqdn not in active_subdomains:
             active_subdomains[target.fqdn] = type("Sub", (), {"fqdn": target.fqdn, "ip": "Resolved", "is_alive": True})()
 
         active_hosts_list = list(active_subdomains.keys())
-        yield f"event: stage\ndata: {json.dumps({'stage': 'dns_done', 'message': f'成功校验 {len(active_subdomains)} 个存活子域节点', 'activeHosts': active_hosts_list})}\n\n"
-        await asyncio.sleep(0.2)
+        yield f"event: stage\ndata: {json.dumps({'stage': 'dns_done', 'message': f'已确认 {len(active_subdomains)} 个活跃子域', 'activeHosts': active_hosts_list})}\n\n"
+        await asyncio.sleep(0.1)
 
-        # Stage 5: Deep Page Crawling & JS Routing Extraction
-        yield f"event: stage\ndata: {json.dumps({'stage': 'deep_crawling', 'message': '穿透站内路由、嗅探 sitemap.xml 并提取前端 JS 隐蔽 API...'})}\n\n"
+        # Stage 5: Concurrent Deep Page Crawling
+        yield f"event: stage\ndata: {json.dumps({'stage': 'deep_crawling', 'message': '并发穿透页面、嗅探 sitemap.xml 并逆向 JS 隐蔽 API...'})}\n\n"
         crawled_hosts = {}
-        top_hosts = active_hosts_list[:8]
+        top_hosts = active_hosts_list[:6]
 
-        for host in top_hosts:
-            base_u = f"https://{host}"
-            crawl_res = await crawl_single_host(
-                base_u, host, target.root_domain,
-                initial_path=target.initial_path if host == target.fqdn else "/"
-            )
-            crawled_hosts[host] = crawl_res
-            yield f"event: host_crawled\ndata: {json.dumps({'host': host, 'pagesCount': len(crawl_res.pages)})}\n\n"
+        async def _bound_crawl(h: str):
+            base_u = f"https://{h}"
+            res = await crawl_single_host(base_u, h, target.root_domain, initial_path=target.initial_path if h == target.fqdn else "/")
+            return h, res
+
+        crawl_tasks = [_bound_crawl(h) for h in top_hosts]
+        crawl_results = await asyncio.gather(*crawl_tasks, return_exceptions=True)
+        for item in crawl_results:
+            if isinstance(item, tuple):
+                crawled_hosts[item[0]] = item[1]
+                yield f"event: host_crawled\ndata: {json.dumps({'host': item[0], 'pagesCount': len(item[1].pages)})}\n\n"
 
         # Stage 6: Final Graph Delivery
         graph = build_react_flow_graph(target.root_domain, active_subdomains, crawled_hosts, horizontal_domains)

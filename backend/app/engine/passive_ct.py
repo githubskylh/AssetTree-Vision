@@ -4,10 +4,10 @@ from typing import Set
 
 logger = logging.getLogger(__name__)
 
-async def query_cert_transparency_subdomains(root_domain: str, timeout_seconds: float = 8.0) -> Set[str]:
+async def query_cert_transparency_subdomains(root_domain: str, timeout_seconds: float = 4.0) -> Set[str]:
     """
     Passively query Certificate Transparency logs (crt.sh) for subdomains of the root_domain.
-    Zero intrusive traffic towards target server.
+    Strict timeout ensures immediate fallback to high-speed DNS resolver if crt.sh lags on huge domains.
     """
     discovered: Set[str] = set()
     url = f"https://crt.sh/?q=%.{root_domain}&output=json"
@@ -20,16 +20,15 @@ async def query_cert_transparency_subdomains(root_domain: str, timeout_seconds: 
             resp = await client.get(url, headers=headers)
             if resp.status_code == 200:
                 data = resp.json()
-                for entry in data:
+                for entry in data[:150]:
                     name_value = entry.get("name_value", "")
                     for name in name_value.split("\n"):
                         clean_name = name.strip().lower()
-                        # Remove wildcard prefix
                         if clean_name.startswith("*."):
                             clean_name = clean_name[2:]
                         if clean_name.endswith(root_domain) and clean_name != root_domain:
                             discovered.add(clean_name)
     except Exception as e:
-        logger.warning(f"Passive CT lookup for {root_domain} encountered warning/timeout: {e}")
+        logger.warning(f"Passive CT lookup for {root_domain} notice: {e}")
 
     return discovered
