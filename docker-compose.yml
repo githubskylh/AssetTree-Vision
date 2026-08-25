@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build:
@@ -9,11 +7,6 @@ services:
     restart: always
     environment:
       - PORT=8000
-    deploy:
-      resources:
-        limits:
-          cpus: '1.5'
-          memory: 2048M
     ports:
       - "8001:8000"
 
